@@ -1,0 +1,13 @@
+# Local device credentials — never commit
+.device.env
+.env.device
+credentials.local.*
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Data cache (ingested locally)
+data/cache/
