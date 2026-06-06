@@ -293,6 +293,10 @@ def biz_profile():
         company_type=company_type,
     )
 
+    from data.borough_contacts import get_contact
+    borough = (prop.get("borough") or "").lower()
+    council = get_contact(borough)
+
     return jsonify({
         "step":              "analysis",
         "property":          prop,
@@ -304,6 +308,7 @@ def biz_profile():
         "company_age_years": company_age_years,
         "grants":            grants,
         "lsoa":              voa_result.get("lsoa"),
+        "council":           council,
     })
 
 
