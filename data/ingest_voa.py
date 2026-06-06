@@ -17,37 +17,45 @@ import sys
 import zipfile
 from pathlib import Path
 
-# ── Field indices ─────────────────────────────────────────────────────────────
-# IMPORTANT: verify these against the actual file before trusting output.
-# Run: python3 data/ingest_voa.py <zip> --inspect
-# Adjust constants below if positions differ from the spec.
-IDX_BA_CODE   = 0    # Billing authority code (4 digits), e.g. "5360"
+# ── Field indices (verified against real 2026 compiled epoch file) ────────────
+# [00] = sequential row counter (NOT BA code)
+# [01] = BA code e.g. "5360" (Hackney), "5990" (Westminster)
+# [03] = UARN
+# [04] = description code e.g. "CF", "SR", "CW"
+# [05] = description text e.g. "CAFE AND PREMISES"
+# [06] = SCAT code
+# [09] = address line 1
+# [10] = address line 2
+# [11] = address line 3
+# [14] = postcode e.g. "E8 1DY"
+# [17] = rateable value (integer £)
+IDX_BA_CODE   = 1    # Billing authority code (4 digits), e.g. "5360"
 IDX_UARN      = 3    # Unique Address Reference Number
 IDX_DESC_CODE = 4    # Primary description code, e.g. "CF", "SR", "PB"
 IDX_DESC_TEXT = 5    # e.g. "CAFE AND PREMISES", "SHOP AND PREMISES"
-IDX_SCAT      = 6    # SCAT code (4-digit property use classification)
-IDX_COMPOSITE = 9    # "Y" = composite hereditament
-IDX_RV        = 11   # Rateable value (integer £)
-IDX_ADDR1     = 12
-IDX_ADDR2     = 13
-IDX_ADDR3     = 14
-IDX_ADDR4     = 15
-IDX_POSTCODE  = 16   # UK postcode
+IDX_SCAT      = 6    # SCAT code
+IDX_ADDR1     = 9
+IDX_ADDR2     = 10
+IDX_ADDR3     = 11
+IDX_POSTCODE  = 14   # UK postcode
+IDX_RV        = 17   # Rateable value (integer £)
 
-MIN_FIELDS = 17
+MIN_FIELDS = 18
 
-# ── London Billing Authority codes ────────────────────────────────────────────
+# ── London Billing Authority codes (verified against real VOA 2026 file) ──────
+# Codes verified by sampling postcodes per BA code from the actual data.
 LONDON_BA: dict[str, str] = {
+    "5030": "City of London",
     "5060": "Barking and Dagenham",
     "5090": "Barnet",
     "5120": "Bexley",
     "5150": "Brent",
     "5180": "Bromley",
     "5210": "Camden",
-    "5240": "City of London",
-    "5270": "Croydon",
-    "5300": "Ealing",
-    "5330": "Enfield",
+    "5240": "Croydon",
+    "5270": "Ealing",
+    "5300": "Enfield",
+    "5330": "Greenwich",
     "5360": "Hackney",
     "5390": "Hammersmith and Fulham",
     "5420": "Haringey",
@@ -126,7 +134,7 @@ def _inspect(zip_path: str) -> None:
                 print(f"\n--- Record {i} ({len(parts)} fields) ---")
                 for j, p in enumerate(parts):
                     marker = ""
-                    if j == IDX_BA_CODE:   marker = " ← BA_CODE"
+                    if j == IDX_BA_CODE:   marker = " ← BA_CODE (London: 5060–5990)"
                     if j == IDX_UARN:      marker = " ← UARN"
                     if j == IDX_DESC_TEXT: marker = " ← DESC_TEXT"
                     if j == IDX_SCAT:      marker = " ← SCAT"
@@ -218,13 +226,11 @@ def parse(zip_path: str, max_rows: int | None = None) -> list[dict]:
                     skipped_no_rv += 1
                     continue
 
-                composite_flag = fields[IDX_COMPOSITE].strip().upper()
                 desc_text = fields[IDX_DESC_TEXT].strip()
                 addr_parts = [
                     fields[IDX_ADDR1].strip(),
                     fields[IDX_ADDR2].strip(),
                     fields[IDX_ADDR3].strip(),
-                    fields[IDX_ADDR4].strip(),
                 ]
                 address = ", ".join(p for p in addr_parts if p)
                 postcode = _norm_postcode(fields[IDX_POSTCODE])
@@ -237,7 +243,7 @@ def parse(zip_path: str, max_rows: int | None = None) -> list[dict]:
                     "desc_text":      desc_text,
                     "sector":         _classify_sector(desc_text),
                     "rateable_value": rv,
-                    "composite":      composite_flag == "Y",
+                    "composite":      False,
                     "address":        address,
                     "postcode":       postcode,
                     "scat":           fields[IDX_SCAT].strip(),

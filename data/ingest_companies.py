@@ -75,11 +75,21 @@ def search_by_name(name: str, api_key: str, *, items_per_page: int = 5) -> list[
     candidates = []
     for item in data.get("items", []):
         addr = item.get("registered_office_address", {})
+        postcode = addr.get("postal_code", "").strip().upper()
+        company_number = item.get("company_number", "")
+
+        # Search results sometimes omit address — fetch full profile if postcode missing
+        if not postcode and company_number:
+            profile = get_by_number(company_number, api_key)
+            if profile:
+                postcode = profile.get("postcode", "")
+                addr = {"postal_code": postcode, "address_line_1": profile.get("address", "")}
+
         candidates.append({
-            "company_number": item.get("company_number", ""),
+            "company_number": company_number,
             "name":           item.get("title", ""),
             "status":         item.get("company_status", ""),
-            "postcode":       addr.get("postal_code", "").strip().upper(),
+            "postcode":       postcode,
             "address":        _format_address(addr),
             "sic_codes":      item.get("sic_codes", []),
         })
