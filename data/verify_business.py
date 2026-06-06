@@ -21,7 +21,7 @@ from engines.rules_relief import Business, assess, _gross_bill
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="LEDGER — verify a real business end-to-end")
+    parser = argparse.ArgumentParser(description="STELLA — verify a real business end-to-end")
     parser.add_argument("postcode", nargs="+", help="Postcode e.g. E8 1DY")
     parser.add_argument("--name",   default="", help="Business name (display only)")
     parser.add_argument("--uarn",   default="", help="Target a specific UARN from the list")
@@ -31,7 +31,7 @@ def main() -> None:
     postcode = " ".join(args.postcode)
 
     print(f"\n{'='*60}")
-    print("LEDGER — Verification Report")
+    print("STELLA — Verification Report")
     print(f"Postcode : {postcode}" + (f"  ({args.name})" if args.name else ""))
     print(f"{'='*60}\n")
 

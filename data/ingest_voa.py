@@ -81,9 +81,14 @@ LONDON_BA: dict[str, str] = {
 }
 
 # Description text → sector (first match wins)
+# NOTE: longer/more specific strings must come before short ones to avoid false matches
+# e.g. "PUBLIC CONVENIENCE" must not match "PUB" — check for "PUBLIC" exclusion via word boundary
 SECTOR_RULES: list[tuple[str, str]] = [
-    ("PUB",           "pub"),
-    ("INN ",          "pub"),
+    ("PUBLIC CONVENIENCE", "other"),   # must be before "PUB"
+    ("PUBLIC HOUSE",       "pub"),
+    ("PUB AND",            "pub"),
+    ("PUB ",               "pub"),
+    ("INN ",               "pub"),
     ("TAVERN",        "pub"),
     ("WINE BAR",      "pub"),
     ("CAFE",          "cafe"),

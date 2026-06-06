@@ -1,0 +1,667 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>STELLA — Find Your Unclaimed Business Money</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    background: #0a0a0f;
+    color: #e8e8f0;
+    min-height: 100vh;
+  }
+
+  /* ── Header ── */
+  header {
+    padding: 2rem 2rem 1rem;
+    border-bottom: 1px solid #1e1e2e;
+  }
+  .logo { font-size: 1.4rem; font-weight: 700; letter-spacing: 0.15em; color: #7c6af7; }
+  .tagline { font-size: 0.8rem; color: #666; margin-top: 2px; letter-spacing: 0.05em; }
+
+  /* ── Layout ── */
+  main {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 3rem 2rem;
+  }
+
+  /* ── Hero input ── */
+  .hero h1 {
+    font-size: 2.2rem;
+    font-weight: 700;
+    line-height: 1.25;
+    margin-bottom: 0.5rem;
+  }
+  .hero h1 span { color: #7c6af7; }
+  .hero p { color: #888; font-size: 0.95rem; margin-bottom: 2rem; }
+
+  .search-box {
+    display: flex;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+    margin-bottom: 1rem;
+  }
+  .search-box input {
+    flex: 1;
+    min-width: 240px;
+    padding: 0.9rem 1.2rem;
+    background: #13131f;
+    border: 1.5px solid #2a2a40;
+    border-radius: 10px;
+    color: #e8e8f0;
+    font-size: 1rem;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+  .search-box input:focus { border-color: #7c6af7; }
+  .search-box input::placeholder { color: #444; }
+
+  .search-box select {
+    padding: 0.9rem 1rem;
+    background: #13131f;
+    border: 1.5px solid #2a2a40;
+    border-radius: 10px;
+    color: #888;
+    font-size: 0.9rem;
+    outline: none;
+    cursor: pointer;
+  }
+  .search-box select:focus { border-color: #7c6af7; color: #e8e8f0; }
+
+  .btn-primary {
+    padding: 0.9rem 2rem;
+    background: #7c6af7;
+    color: #fff;
+    border: none;
+    border-radius: 10px;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s, transform 0.1s;
+    white-space: nowrap;
+  }
+  .btn-primary:hover { background: #6b58e6; }
+  .btn-primary:active { transform: scale(0.98); }
+  .btn-primary:disabled { background: #333; color: #666; cursor: not-allowed; }
+
+  .hint { font-size: 0.78rem; color: #555; }
+  .hint kbd {
+    background: #1e1e2e;
+    border: 1px solid #333;
+    border-radius: 4px;
+    padding: 1px 5px;
+    font-size: 0.75rem;
+  }
+
+  /* ── Loading ── */
+  .loading {
+    display: none;
+    text-align: center;
+    padding: 3rem;
+    color: #666;
+  }
+  .spinner {
+    display: inline-block;
+    width: 32px; height: 32px;
+    border: 3px solid #2a2a40;
+    border-top-color: #7c6af7;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    margin-bottom: 1rem;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Error ── */
+  .error-card {
+    display: none;
+    background: #1a0a0a;
+    border: 1px solid #5a1a1a;
+    border-radius: 12px;
+    padding: 1.2rem 1.5rem;
+    color: #f87171;
+    margin-top: 1.5rem;
+  }
+
+  /* ── Results ── */
+  #results { margin-top: 2rem; }
+
+  .results-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 1rem;
+  }
+  .results-header h2 { font-size: 1.1rem; color: #888; font-weight: 400; }
+  .lsoa-badge {
+    font-size: 0.75rem;
+    background: #13131f;
+    border: 1px solid #2a2a40;
+    border-radius: 6px;
+    padding: 3px 8px;
+    color: #555;
+  }
+
+  /* ── Business card ── */
+  .biz-card {
+    background: #13131f;
+    border: 1px solid #2a2a40;
+    border-radius: 14px;
+    padding: 1.5rem;
+    margin-bottom: 1rem;
+    transition: border-color 0.2s;
+  }
+  .biz-card.has-savings { border-color: #3d2f6e; }
+  .biz-card.has-savings:hover { border-color: #7c6af7; }
+
+  .biz-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 1rem;
+    margin-bottom: 1rem;
+  }
+  .biz-name { font-size: 1rem; font-weight: 600; margin-bottom: 2px; }
+  .biz-meta { font-size: 0.78rem; color: #555; }
+  .biz-rv {
+    text-align: right;
+    flex-shrink: 0;
+  }
+  .rv-label { font-size: 0.7rem; color: #555; letter-spacing: 0.05em; text-transform: uppercase; }
+  .rv-value { font-size: 1.3rem; font-weight: 700; color: #e8e8f0; }
+
+  /* ── Money highlight ── */
+  .money-hero {
+    background: linear-gradient(135deg, #1a1030 0%, #0f1a1a 100%);
+    border: 1px solid #3d2f6e;
+    border-radius: 10px;
+    padding: 1.2rem 1.5rem;
+    margin-bottom: 1rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 1rem;
+  }
+  .money-hero .label { font-size: 0.8rem; color: #888; margin-bottom: 3px; }
+  .money-hero .amount { font-size: 2rem; font-weight: 800; color: #a78bfa; }
+  .money-hero .sub { font-size: 0.8rem; color: #666; margin-top: 2px; }
+  .money-hero .back { text-align: right; }
+  .money-hero .back .amount { font-size: 1.4rem; color: #7c6af7; }
+
+  /* ── Findings list ── */
+  .findings { list-style: none; }
+  .findings li {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.7rem 0;
+    border-bottom: 1px solid #1e1e2e;
+    font-size: 0.88rem;
+    gap: 1rem;
+  }
+  .findings li:last-child { border-bottom: none; }
+  .finding-name { color: #c4c4d4; }
+  .finding-badge {
+    font-size: 0.72rem;
+    border-radius: 5px;
+    padding: 2px 7px;
+    white-space: nowrap;
+    font-weight: 600;
+  }
+  .badge-high { background: #1a3a1a; color: #4ade80; }
+  .badge-medium { background: #2a2a10; color: #facc15; }
+  .badge-low { background: #1e1e2e; color: #888; }
+  .badge-warn { background: #2a1a0a; color: #f97316; }
+  .finding-value { font-weight: 600; color: #a78bfa; white-space: nowrap; }
+
+  /* ── No relief ── */
+  .no-relief {
+    color: #555;
+    font-size: 0.85rem;
+    padding: 0.5rem 0;
+  }
+
+  /* ── Action buttons ── */
+  .card-actions {
+    display: flex;
+    gap: 0.75rem;
+    margin-top: 1.2rem;
+    flex-wrap: wrap;
+  }
+  .btn-secondary {
+    padding: 0.6rem 1.2rem;
+    background: transparent;
+    border: 1px solid #2a2a40;
+    border-radius: 8px;
+    color: #888;
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: border-color 0.2s, color 0.2s;
+  }
+  .btn-secondary:hover { border-color: #7c6af7; color: #a78bfa; }
+  .btn-email {
+    padding: 0.6rem 1.2rem;
+    background: #1a1030;
+    border: 1px solid #3d2f6e;
+    border-radius: 8px;
+    color: #a78bfa;
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+  .btn-email:hover { background: #2a1a50; }
+
+  /* ── Email draft modal ── */
+  .modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+    z-index: 100;
+    align-items: center;
+    justify-content: center;
+    padding: 2rem;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal {
+    background: #13131f;
+    border: 1px solid #2a2a40;
+    border-radius: 16px;
+    padding: 2rem;
+    max-width: 640px;
+    width: 100%;
+    max-height: 80vh;
+    overflow-y: auto;
+  }
+  .modal h3 { margin-bottom: 1rem; font-size: 1rem; }
+  .modal textarea {
+    width: 100%;
+    background: #0a0a0f;
+    border: 1px solid #2a2a40;
+    border-radius: 8px;
+    color: #e8e8f0;
+    padding: 1rem;
+    font-size: 0.85rem;
+    line-height: 1.6;
+    min-height: 220px;
+    resize: vertical;
+    font-family: inherit;
+  }
+  .modal-actions { display: flex; gap: 0.75rem; margin-top: 1rem; justify-content: flex-end; }
+  .btn-copy {
+    padding: 0.6rem 1.2rem;
+    background: #7c6af7;
+    border: none;
+    border-radius: 8px;
+    color: #fff;
+    font-size: 0.85rem;
+    cursor: pointer;
+  }
+  .btn-close {
+    padding: 0.6rem 1.2rem;
+    background: transparent;
+    border: 1px solid #333;
+    border-radius: 8px;
+    color: #888;
+    font-size: 0.85rem;
+    cursor: pointer;
+  }
+
+  /* ── Grants section ── */
+  .grants-section { margin-top: 2.5rem; }
+  .grants-section h2 { font-size: 1rem; color: #888; margin-bottom: 1rem; font-weight: 400; }
+  .grant-card {
+    background: #13131f;
+    border: 1px solid #1e2e1e;
+    border-radius: 12px;
+    padding: 1.2rem 1.5rem;
+    margin-bottom: 0.75rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+  .grant-name { font-size: 0.92rem; font-weight: 600; color: #c4f4c4; margin-bottom: 3px; }
+  .grant-who { font-size: 0.78rem; color: #666; }
+  .grant-value {
+    font-size: 1rem;
+    font-weight: 700;
+    color: #4ade80;
+    white-space: nowrap;
+  }
+  .grant-action {
+    font-size: 0.78rem;
+    color: #555;
+    margin-top: 4px;
+  }
+  .grant-action a { color: #7c6af7; text-decoration: none; }
+  .grant-action a:hover { text-decoration: underline; }
+
+  /* ── Empty / no savings ── */
+  .dim { color: #444; }
+
+  /* ── Responsive ── */
+  @media (max-width: 600px) {
+    .hero h1 { font-size: 1.6rem; }
+    .money-hero { flex-direction: column; }
+    .money-hero .back { text-align: left; }
+    .biz-header { flex-direction: column; }
+    .biz-rv { text-align: left; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">STELLA</div>
+  <div class="tagline">Find what your London business is owed — privately, on device</div>
+</header>
+
+<main>
+  <div class="hero">
+    <h1>Your business has <span>unclaimed money.</span><br>Let's find it.</h1>
+    <p>Enter a London postcode or business name. Every £ figure traces to gov.uk — no hallucinations, runs on-device.</p>
+
+    <div class="search-box">
+      <input type="text" id="queryInput" placeholder="Postcode e.g. E8 1DY  or  Business name" autofocus>
+      <select id="sectorSelect">
+        <option value="">Sector (auto-detect)</option>
+        <option value="cafe">Café / Coffee shop</option>
+        <option value="retail">Retail / Shop</option>
+        <option value="pub">Pub / Bar</option>
+        <option value="hospitality">Hotel / Guest house</option>
+        <option value="office">Office</option>
+        <option value="industrial">Industrial / Warehouse</option>
+        <option value="leisure">Gym / Leisure</option>
+        <option value="other">Other</option>
+      </select>
+      <button class="btn-primary" id="searchBtn" onclick="doSearch()">Find Money →</button>
+    </div>
+    <div class="hint">Try: <kbd>E8 1DY</kbd> · <kbd>WC2H 9PR</kbd> · <kbd>N1 1DN</kbd></div>
+  </div>
+
+  <div class="loading" id="loading">
+    <div class="spinner"></div>
+    <div>Checking VOA index &amp; running relief engine…</div>
+  </div>
+
+  <div class="error-card" id="errorCard"></div>
+
+  <div id="results"></div>
+
+  <div class="grants-section" id="grantsSection" style="display:none">
+    <h2>GRANTS &amp; FUNDING — matched to your business</h2>
+    <div id="grantsContainer"></div>
+  </div>
+</main>
+
+<!-- Email modal -->
+<div class="modal-overlay" id="emailModal">
+  <div class="modal">
+    <h3>📧 Draft Claim Letter</h3>
+    <div id="emailLoading" style="color:#666;font-size:0.85rem;margin-bottom:1rem;display:none">Drafting with local LLM…</div>
+    <textarea id="emailText" readonly></textarea>
+    <div class="modal-actions">
+      <button class="btn-close" onclick="closeModal()">Close</button>
+      <button class="btn-copy" onclick="copyEmail()">Copy to clipboard</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let lastResult = null;
+let currentBiz = null;
+
+document.getElementById('queryInput').addEventListener('keydown', e => {
+  if (e.key === 'Enter') doSearch();
+});
+
+async function doSearch() {
+  const query = document.getElementById('queryInput').value.trim();
+  const sector = document.getElementById('sectorSelect').value;
+  if (!query) return;
+
+  setLoading(true);
+  clearResults();
+
+  try {
+    const res = await fetch('/api/lookup', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({query, sector})
+    });
+    const data = await res.json();
+    lastResult = data;
+
+    if (!res.ok || data.error) {
+      showError(data.error || 'Something went wrong');
+      return;
+    }
+
+    renderResults(data);
+    if (data.businesses && data.businesses.length > 0) {
+      fetchGrants(data.businesses[0]);
+    }
+  } catch(e) {
+    showError('Server unreachable — is the app running?');
+  } finally {
+    setLoading(false);
+  }
+}
+
+function renderResults(data) {
+  const container = document.getElementById('results');
+  const businesses = data.businesses || [];
+
+  if (!businesses.length) {
+    container.innerHTML = `
+      <div class="biz-card">
+        <div class="no-relief">No VOA entry found for "<strong>${escHtml(data.query)}</strong>".
+        Try a nearby postcode or check at
+        <a href="https://www.gov.uk/correct-your-business-rates" target="_blank" style="color:#7c6af7">gov.uk/correct-your-business-rates</a>.</div>
+        ${data.candidates ? renderCandidates(data.candidates) : ''}
+      </div>`;
+    return;
+  }
+
+  // Show only businesses with savings first, then rest
+  const withSavings = businesses.filter(b => b.totals.total_annual_savings > 0);
+  const noSavings   = businesses.filter(b => b.totals.total_annual_savings === 0);
+
+  let html = `<div class="results-header">
+    <h2>${businesses.length} propert${businesses.length === 1 ? 'y' : 'ies'} found at ${escHtml(data.query)}</h2>
+    ${data.lsoa ? `<span class="lsoa-badge">LSOA: ${escHtml(data.lsoa)}</span>` : ''}
+  </div>`;
+
+  [...withSavings, ...noSavings].forEach(b => {
+    html += renderBizCard(b);
+  });
+
+  container.innerHTML = html;
+}
+
+function renderBizCard(b) {
+  const hasSavings = b.totals.total_annual_savings > 0;
+  const findings = b.findings || [];
+
+  let moneyHtml = '';
+  if (hasSavings) {
+    moneyHtml = `
+      <div class="money-hero">
+        <div>
+          <div class="label">ANNUAL SAVING</div>
+          <div class="amount">£${fmt(b.totals.total_annual_savings)}</div>
+          <div class="sub">per year — likely unclaimed</div>
+        </div>
+        <div class="back">
+          <div class="label">BACKDATED EST.</div>
+          <div class="amount">£${fmt(b.totals.total_backdated)}</div>
+          <div class="sub">up to 6 years</div>
+        </div>
+      </div>`;
+  }
+
+  let findingsHtml = '';
+  if (findings.length) {
+    findingsHtml = '<ul class="findings">';
+    findings.forEach(f => {
+      if (f.annual_value > 0) {
+        findingsHtml += `<li>
+          <span class="finding-name">${escHtml(f.headline)}</span>
+          <span style="display:flex;align-items:center;gap:0.5rem">
+            <span class="finding-badge badge-${f.confidence}">${f.confidence}</span>
+            <span class="finding-value">£${fmt(f.annual_value)}/yr</span>
+          </span>
+        </li>`;
+      } else {
+        findingsHtml += `<li>
+          <span class="finding-name">${escHtml(f.headline)}</span>
+          <span class="finding-badge badge-warn">check</span>
+        </li>`;
+      }
+    });
+    findingsHtml += '</ul>';
+  } else if (!hasSavings) {
+    findingsHtml = `<div class="no-relief dim">RV £${fmt(b.rateable_value)} — above relief thresholds. No unclaimed money found.</div>`;
+  }
+
+  const actions = hasSavings ? `
+    <div class="card-actions">
+      <button class="btn-email" onclick="openEmailModal(${JSON.stringify(JSON.stringify(b))})">📧 Draft claim letter</button>
+      <a href="https://www.gov.uk/correct-your-business-rates" target="_blank" style="text-decoration:none">
+        <button class="btn-secondary">Verify RV on gov.uk ↗</button>
+      </a>
+    </div>` : '';
+
+  return `
+    <div class="biz-card ${hasSavings ? 'has-savings' : ''}">
+      <div class="biz-header">
+        <div>
+          <div class="biz-name">${escHtml(b.name)}</div>
+          <div class="biz-meta">${escHtml(b.address)} · ${escHtml(b.borough)} · UARN: ${escHtml(b.uarn)}</div>
+        </div>
+        <div class="biz-rv">
+          <div class="rv-label">Rateable Value</div>
+          <div class="rv-value">£${fmt(b.rateable_value)}</div>
+          <div class="biz-meta">${escHtml(b.sector)} · £${fmt(b.gross_annual_bill)}/yr gross</div>
+        </div>
+      </div>
+      ${moneyHtml}
+      ${findingsHtml}
+      ${actions}
+    </div>`;
+}
+
+function renderCandidates(candidates) {
+  if (!candidates || !candidates.length) return '';
+  let html = '<div style="margin-top:1rem;font-size:0.82rem;color:#666"><strong style="color:#888">Companies House candidates:</strong><br>';
+  candidates.forEach(c => {
+    html += `<div style="margin-top:0.4rem">${escHtml(c.name)} · ${escHtml(c.postcode || 'no postcode')} · ${escHtml(c.address || '')}</div>`;
+  });
+  return html + '</div>';
+}
+
+async function fetchGrants(biz) {
+  try {
+    const res = await fetch('/api/grants', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({sector: biz.sector, borough: biz.borough})
+    });
+    const data = await res.json();
+    renderGrants(data.grants || []);
+  } catch(e) {}
+}
+
+function renderGrants(grants) {
+  if (!grants.length) return;
+  const section = document.getElementById('grantsSection');
+  const container = document.getElementById('grantsContainer');
+  section.style.display = 'block';
+  container.innerHTML = grants.map(g => `
+    <div class="grant-card">
+      <div>
+        <div class="grant-name">${escHtml(g.name)}</div>
+        <div class="grant-who">${escHtml(g.who)}</div>
+        <div class="grant-action">${escHtml(g.action)} — <a href="${escHtml(g.url)}" target="_blank">Apply ↗</a></div>
+      </div>
+      <div class="grant-value">${escHtml(g.value)}</div>
+    </div>`).join('');
+}
+
+function openEmailModal(bizJson) {
+  currentBiz = JSON.parse(bizJson);
+  const modal = document.getElementById('emailModal');
+  modal.classList.add('open');
+  document.getElementById('emailText').value = '';
+  document.getElementById('emailLoading').style.display = 'block';
+
+  fetch('/api/draft-email', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({business: currentBiz})
+  })
+  .then(r => r.json())
+  .then(d => {
+    document.getElementById('emailLoading').style.display = 'none';
+    document.getElementById('emailText').value = d.email || d.error || 'Error drafting email';
+  })
+  .catch(() => {
+    document.getElementById('emailLoading').style.display = 'none';
+    document.getElementById('emailText').value =
+      `Dear Business Rates Team,\n\nI am writing to claim Small Business Rate Relief for the property at:\n\n${currentBiz.address}\nUARN: ${currentBiz.uarn}\n\nPlease confirm eligibility and any backdated relief available.\n\nYours faithfully,\n[Your name]`;
+  });
+}
+
+function closeModal() {
+  document.getElementById('emailModal').classList.remove('open');
+}
+
+function copyEmail() {
+  const text = document.getElementById('emailText').value;
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = document.querySelector('.btn-copy');
+    btn.textContent = 'Copied ✓';
+    setTimeout(() => btn.textContent = 'Copy to clipboard', 2000);
+  });
+}
+
+function setLoading(on) {
+  document.getElementById('loading').style.display = on ? 'block' : 'none';
+  document.getElementById('searchBtn').disabled = on;
+  document.getElementById('searchBtn').textContent = on ? 'Searching…' : 'Find Money →';
+}
+
+function clearResults() {
+  document.getElementById('results').innerHTML = '';
+  document.getElementById('errorCard').style.display = 'none';
+  document.getElementById('grantsSection').style.display = 'none';
+  document.getElementById('grantsContainer').innerHTML = '';
+}
+
+function showError(msg) {
+  const el = document.getElementById('errorCard');
+  el.textContent = msg;
+  el.style.display = 'block';
+}
+
+function fmt(n) {
+  return Math.round(n).toLocaleString('en-GB');
+}
+
+function escHtml(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// Close modal on overlay click
+document.getElementById('emailModal').addEventListener('click', e => {
+  if (e.target === e.currentTarget) closeModal();
+});
+</script>
+</body>
+</html>
