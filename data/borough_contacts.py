@@ -173,11 +173,18 @@ BOROUGH_CONTACTS: dict[str, dict] = {
 }
 
 
+# gov.uk official tool — works for any postcode, always up to date
+GOVUK_COUNCIL_FINDER = "https://www.gov.uk/apply-for-business-rate-relief/small-business-rate-relief"
+
+
 def get_contact(borough: str) -> dict:
-    """Return contact info for a borough. Falls back to gov.uk guide."""
+    """Return contact info for a borough. Always includes gov.uk fallback URL."""
     key = borough.strip().lower()
-    return BOROUGH_CONTACTS.get(key, {
-        "apply_url": "https://www.gov.uk/apply-for-business-rate-relief/small-business-rate-relief",
-        "email": "",
-        "phone": "",
-    })
+    info = BOROUGH_CONTACTS.get(key, {})
+    return {
+        "council_url":  info.get("apply_url", ""),       # direct council page (may need browser)
+        "govuk_url":    GOVUK_COUNCIL_FINDER,             # always works
+        "email":        info.get("email", ""),
+        "phone":        info.get("phone", ""),
+        "borough_name": borough.title(),
+    }

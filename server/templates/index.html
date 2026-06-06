@@ -558,11 +558,16 @@ function renderBizProfile(data) {
       </div>
       <div class="prop-actions" style="margin-top:1rem">
         <button class="btn-draft" onclick="currentBiz=_bizProfileCache.property;showEmailModal()">📧 Draft claim letter</button>
-        ${data.council && data.council.apply_url ? `<a href="${esc(data.council.apply_url)}" target="_blank" class="btn-govuk" style="background:#0a1a0a;border-color:#1a4a1a;color:#4ade80">Apply to ${esc(prop.borough)} Council ↗</a>` : `<a href="https://www.gov.uk/apply-for-business-rate-relief/small-business-rate-relief" target="_blank" class="btn-govuk">Apply via gov.uk ↗</a>`}
+        <a href="${data.council && data.council.govuk_url ? esc(data.council.govuk_url) : 'https://www.gov.uk/apply-for-business-rate-relief/small-business-rate-relief'}" target="_blank" class="btn-govuk" style="background:#0a1a0a;border-color:#1a4a1a;color:#4ade80">Apply — gov.uk guide ↗</a>
+        ${data.council && data.council.council_url ? `<a href="${esc(data.council.council_url)}" target="_blank" class="btn-govuk">${esc(prop.borough)} Council ↗</a>` : ''}
         <a href="https://www.gov.uk/correct-your-business-rates" target="_blank" class="btn-govuk">Verify RV ↗</a>
         <button class="uarn-copy" onclick="copyUarn('${esc(prop.uarn)}',this)">Copy UARN</button>
       </div>
-      ${data.council && data.council.email ? `<div style="margin-top:0.5rem;font-size:0.75rem;color:#555">Council rates team: <a href="mailto:${esc(data.council.email)}" style="color:#60a5fa">${esc(data.council.email)}</a> · ${esc(data.council.phone||'')}</div>` : ''}
+      ${data.council && data.council.email ? `<div style="margin-top:0.6rem;padding:0.5rem 0.7rem;background:#0a0a0a;border:1px solid #1a1a1a;border-radius:6px;font-size:0.75rem;color:#666">
+        <strong style="color:#888">${esc(prop.borough)} Business Rates Team</strong> &nbsp;·&nbsp;
+        <a href="mailto:${esc(data.council.email)}" style="color:#60a5fa">${esc(data.council.email)}</a>
+        ${data.council.phone ? `&nbsp;·&nbsp; ${esc(data.council.phone)}` : ''}
+      </div>` : ''}
     </div>`;
   } else {
     html += `<div class="prop-card" style="padding:1.2rem 1.3rem">
