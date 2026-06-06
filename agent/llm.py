@@ -23,7 +23,7 @@ def _openai_chat(prompt: str, *, base_url: str, model: str, system: str | None) 
     payload = json.dumps({
         "model":      model,
         "messages":   messages,
-        "max_tokens": 600,
+        "max_tokens": 4096,   # nemotron is a reasoning model — needs tokens for CoT + answer
         "temperature": 0.2,
     }).encode()
 

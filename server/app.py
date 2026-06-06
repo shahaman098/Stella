@@ -335,6 +335,36 @@ def draft_email():
         return jsonify({"error": f"LLM unavailable (is Ollama running?): {e}"}), 503
 
 
+@app.route("/api/draft-grant", methods=["POST"])
+def draft_grant():
+    """AI drafts a personalised grant application email + action checklist."""
+    data     = request.json or {}
+    grant    = data.get("grant", {})
+    business = data.get("business", {})
+    try:
+        from agent.llm import chat
+        email_prompt = (
+            f"Write a short professional email (under 120 words) from the owner of "
+            f"{business.get('name','our business')}, a {business.get('sector','')} in "
+            f"{business.get('borough','London')}, to {grant.get('funder')} applying for "
+            f"the {grant.get('name')} ({grant.get('value')}). "
+            f"Why eligible: {', '.join(grant.get('match_reasons', []))}. "
+            f"Company age: {business.get('company_age_years','')} years. "
+            f"Do NOT invent facts. End with [Your name] placeholder."
+        )
+        steps_prompt = (
+            f"Give a numbered list of 5 concrete action steps to apply for {grant.get('name')} "
+            f"from {grant.get('funder')}. Include: what documents to prepare, URL to visit "
+            f"({grant.get('url')}), who to contact, and deadline ({grant.get('deadline')}). "
+            f"Be specific. No filler."
+        )
+        email = chat(email_prompt, system="You are a grant application specialist for UK small businesses.")
+        steps = chat(steps_prompt, system="You are a grant application specialist for UK small businesses.")
+        return jsonify({"email": email.strip(), "steps": steps.strip()})
+    except Exception as e:
+        return jsonify({"error": f"LLM unavailable: {e}"}), 503
+
+
 @app.route("/api/companies-at", methods=["POST"])
 def companies_at():
     """Return Companies House records at a postcode. Local DB first, API fallback."""

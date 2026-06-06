@@ -53,7 +53,7 @@ class Business:
 class ReliefFinding:
     headline: str
     annual_value: float       # £/yr this relief saves
-    backdated_value: float    # £ lump (up to 6-yr backdating estimate)
+    backdated_value: float    # £ lump (conservative 3-yr estimate from Apr 2023)
     confidence: Literal["high", "medium", "low"]
     rule: str
     action: str
@@ -98,17 +98,19 @@ def assess(biz: Business) -> list[ReliefFinding]:
         findings.append(ReliefFinding(
             headline=f"Small Business Rate Relief — {pct * 100:.0f}% off",
             annual_value=round(saving, 2),
-            backdated_value=round(saving * 6, 2),
+            backdated_value=round(saving * 3, 2),
             confidence="high",
             rule="SBRR 2026/27",
             action=(
-                "Contact your billing authority to claim. "
-                "Relief can be backdated — ask specifically."
+                "Apply to your billing authority (council) — it is NOT automatic. "
+                "Ask them to backdate to April 2023 (start of current rating list). "
+                "Some councils backdate further — always ask."
             ),
             explanation=(
                 f"RV £{rv:,.0f} qualifies for {pct * 100:.0f}% SBRR on a "
                 f"gross bill of £{gross:,.0f}/yr, saving £{saving:,.0f}/yr. "
-                "Backdatable up to 6 years."
+                "Councils typically backdate to April 2023 (start of 2023 rating list) "
+                "— 3 years of unclaimed relief shown here as a conservative estimate."
             ),
             source="https://www.gov.uk/apply-for-business-rate-relief/small-business-rate-relief",
         ))

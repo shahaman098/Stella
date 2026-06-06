@@ -522,9 +522,9 @@ function renderBizProfile(data) {
           <div style="font-size:0.72rem;color:#555;margin-top:3px">per year</div>
         </div>
         <div style="flex:1;min-width:130px;background:linear-gradient(135deg,#150f28,#0a1520);border:1px solid #2d2050;border-radius:8px;padding:0.9rem">
-          <div style="font-size:0.67rem;text-transform:uppercase;color:#666;margin-bottom:3px">Backdated (6yr)</div>
+          <div style="font-size:0.67rem;text-transform:uppercase;color:#666;margin-bottom:3px">Backdated est. (from Apr 2023)</div>
           <div style="font-size:2rem;font-weight:800;color:#a78bfa;line-height:1">£${fmt(prop.totals.total_backdated)}</div>
-          <div style="font-size:0.72rem;color:#555;margin-top:3px">potential claim</div>
+          <div style="font-size:0.72rem;color:#555;margin-top:3px">ask council to backdate further</div>
         </div>
       </div>
       <div style="background:#0d1a0d;border:1px solid #1a2e1a;border-radius:7px;padding:0.7rem 1rem;font-size:0.78rem;color:#4a7a4a;margin-bottom:0.8rem">
@@ -712,7 +712,7 @@ function renderCard(b, idx, opts={}) {
         <div class="money-stat">
           <div class="ms-label">Backdated estimate</div>
           <div class="ms-val">£${fmt(b.totals.total_backdated)}</div>
-          <div class="ms-sub">up to 6 years claim-back</div>
+          <div class="ms-sub">est. from Apr 2023 — ask council for more</div>
         </div>
       </div>
       <div class="credibility">
@@ -822,15 +822,63 @@ async function fetchGrants(biz) {
 function renderGrants(grants) {
   if (!grants.length) return;
   document.getElementById('grantsSection').style.display = 'block';
-  document.getElementById('grantsContainer').innerHTML = grants.map(g => `
-    <div class="grant-card">
-      <div>
+  document.getElementById('grantsContainer').innerHTML = grants.map((g, i) => `
+    <div class="grant-card" id="grant-card-${i}">
+      <div style="flex:1">
         <div class="grant-name">${esc(g.name)}</div>
-        <div class="grant-who">${esc(g.who)}</div>
+        <div class="grant-who">${esc(g.funder || g.who || '')}</div>
+        <div style="font-size:0.75rem;color:#888;margin:4px 0">${g.match_reasons ? g.match_reasons.map(r=>`✓ ${esc(r)}`).join(' &nbsp;') : ''}</div>
         <div class="grant-action">${esc(g.action)} — <a href="${esc(g.url)}" target="_blank">Apply ↗</a></div>
+        <div id="grant-draft-${i}" style="display:none;margin-top:10px">
+          <div style="font-size:0.72rem;color:#aaa;margin-bottom:6px;font-weight:600">AI-DRAFTED APPLICATION EMAIL</div>
+          <textarea id="grant-email-${i}" style="width:100%;min-height:120px;background:#0a0a0a;color:#e5e5e5;border:1px solid #333;border-radius:6px;padding:8px;font-size:0.8rem;resize:vertical"></textarea>
+          <div style="font-size:0.72rem;color:#aaa;margin:8px 0 4px;font-weight:600">ACTION STEPS</div>
+          <div id="grant-steps-${i}" style="font-size:0.8rem;color:#ccc;white-space:pre-line;background:#0a0a0a;border:1px solid #222;border-radius:6px;padding:8px"></div>
+          <button onclick="copyGrantEmail(${i})" style="margin-top:6px;padding:4px 12px;background:#1a1a2e;border:1px solid #333;color:#aaa;border-radius:4px;cursor:pointer;font-size:0.75rem">Copy email</button>
+        </div>
+        <button onclick="draftGrant(${i})" id="grant-btn-${i}" style="margin-top:8px;padding:5px 14px;background:#0f1a2e;border:1px solid #1e3a5f;color:#60a5fa;border-radius:5px;cursor:pointer;font-size:0.78rem">✍ Help me apply</button>
       </div>
-      <div class="grant-value">${esc(g.value)}</div>
+      <div style="text-align:right;min-width:100px">
+        <div class="grant-value">${esc(g.value)}</div>
+        <div style="margin-top:4px;font-size:0.7rem;padding:2px 7px;border-radius:10px;display:inline-block;${
+          g.eligibility==='eligible' ? 'background:#0a2a0a;color:#4ade80;border:1px solid #1a4a1a' :
+          g.eligibility==='likely'   ? 'background:#1a1a06;color:#facc15;border:1px solid #2a2a10' :
+                                       'background:#111;color:#888;border:1px solid #222'
+        }">${esc(g.eligibility)}</div>
+      </div>
     </div>`).join('');
+  _grantsCache = grants;
+}
+
+let _grantsCache = [];
+
+function draftGrant(i) {
+  const g = _grantsCache[i];
+  const biz = _bizProfileCache.property || {};
+  const bizMeta = {
+    name: _bizProfileCache.biz_name || '',
+    sector: biz.sector || '',
+    borough: biz.borough || '',
+    rateable_value: biz.rateable_value || 0,
+    company_age_years: _bizProfileCache.company_age_years || '',
+  };
+  const btn = document.getElementById(`grant-btn-${i}`);
+  btn.textContent = '⏳ Drafting…'; btn.disabled = true;
+  fetch('/api/draft-grant', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({grant: g, business: bizMeta})
+  }).then(r=>r.json()).then(d => {
+    btn.style.display = 'none';
+    const box = document.getElementById(`grant-draft-${i}`);
+    document.getElementById(`grant-email-${i}`).value = d.email || d.error || 'Error drafting email';
+    document.getElementById(`grant-steps-${i}`).textContent = d.steps || '';
+    box.style.display = 'block';
+  }).catch(() => { btn.textContent = '✍ Help me apply'; btn.disabled = false; });
+}
+
+function copyGrantEmail(i) {
+  const ta = document.getElementById(`grant-email-${i}`);
+  navigator.clipboard.writeText(ta.value);
 }
 
 function openEmail(idx) {
