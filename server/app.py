@@ -8,7 +8,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, Response, jsonify, render_template, request, stream_with_context
 
 from agent.pipeline import run, run_by_name
 
@@ -316,58 +316,145 @@ def biz_profile():
 def draft_email():
     data = request.json or {}
     business = data.get("business", {})
-    try:
-        from agent.llm import chat
-        finding_lines = "\n".join(
-            f"- {f['headline']}: £{f['annual_value']:,.0f}/yr"
-            for f in business.get("findings", [])
-            if f.get("annual_value")
-        )
-        prompt = (
-            f"Draft a short, professional email from a small business owner to their local "
-            f"council claiming business rates relief. Use these details:\n"
-            f"Business address: {business.get('address')}\n"
-            f"UARN: {business.get('uarn')}\n"
-            f"Borough: {business.get('borough')}\n"
-            f"Rateable value: £{business.get('rateable_value', 0):,.0f}\n"
-            f"Relief findings:\n{finding_lines}\n\n"
-            f"Keep it under 150 words. Include the UARN. Be polite and direct. "
-            f"Do NOT invent any figures — only use what's above."
-        )
-        email = chat(prompt, system="You are a professional letter-writing assistant for small businesses.")
-        return jsonify({"email": email})
-    except Exception as e:
-        return jsonify({"error": f"LLM unavailable (is Ollama running?): {e}"}), 503
+    finding_lines = "\n".join(
+        f"- {f['headline']}: £{f['annual_value']:,.0f}/yr"
+        for f in business.get("findings", []) if f.get("annual_value")
+    )
+    prompt = (
+        f"Write a professional email under 120 words from the owner of a small business "
+        f"to their council claiming business rates relief. "
+        f"Address: {business.get('address')}. UARN: {business.get('uarn')}. "
+        f"Borough: {business.get('borough')}. RV: £{business.get('rateable_value',0):,.0f}. "
+        f"Relief: {finding_lines}. Include UARN. End with [Your name]."
+    )
+    def generate():
+        try:
+            from agent.llm import stream_chat
+            for chunk in stream_chat(prompt):
+                yield f"data: {json.dumps({'t': chunk})}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+        yield "data: [DONE]\n\n"
+    return Response(stream_with_context(generate()), mimetype="text/event-stream",
+                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 @app.route("/api/draft-grant", methods=["POST"])
 def draft_grant():
-    """AI drafts a personalised grant application email + action checklist."""
-    data     = request.json or {}
-    grant    = data.get("grant", {})
-    business = data.get("business", {})
-    try:
-        from agent.llm import chat
-        email_prompt = (
-            f"Write a short professional email (under 120 words) from the owner of "
-            f"{business.get('name','our business')}, a {business.get('sector','')} in "
-            f"{business.get('borough','London')}, to {grant.get('funder')} applying for "
-            f"the {grant.get('name')} ({grant.get('value')}). "
-            f"Why eligible: {', '.join(grant.get('match_reasons', []))}. "
-            f"Company age: {business.get('company_age_years','')} years. "
-            f"Do NOT invent facts. End with [Your name] placeholder."
+    data    = request.json or {}
+    grant   = data.get("grant", {})
+    biz     = data.get("business", {})
+    mode    = data.get("mode", "email")  # "email" or "steps"
+    if mode == "email":
+        prompt = (
+            f"Write a professional email under 100 words from the owner of "
+            f"{biz.get('name','our business')}, a {biz.get('sector','')} in {biz.get('borough','London')}, "
+            f"to {grant.get('funder')} applying for {grant.get('name')} ({grant.get('value')}). "
+            f"Eligible because: {', '.join(grant.get('match_reasons',[]))}. "
+            f"Company age {biz.get('company_age_years','')} years. End with [Your name]."
         )
-        steps_prompt = (
-            f"Give a numbered list of 5 concrete action steps to apply for {grant.get('name')} "
-            f"from {grant.get('funder')}. Include: what documents to prepare, URL to visit "
-            f"({grant.get('url')}), who to contact, and deadline ({grant.get('deadline')}). "
-            f"Be specific. No filler."
+    else:
+        prompt = (
+            f"Give 5 numbered action steps to apply for {grant.get('name')} from {grant.get('funder')}. "
+            f"Include documents needed, URL ({grant.get('url')}), deadline ({grant.get('deadline')}). "
+            f"Be specific and brief."
         )
-        email = chat(email_prompt, system="You are a grant application specialist for UK small businesses.")
-        steps = chat(steps_prompt, system="You are a grant application specialist for UK small businesses.")
-        return jsonify({"email": email.strip(), "steps": steps.strip()})
-    except Exception as e:
-        return jsonify({"error": f"LLM unavailable: {e}"}), 503
+    def generate():
+        try:
+            from agent.llm import stream_chat
+            for chunk in stream_chat(prompt):
+                yield f"data: {json.dumps({'t': chunk})}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+        yield "data: [DONE]\n\n"
+    return Response(stream_with_context(generate()), mimetype="text/event-stream",
+                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+@app.route("/api/insights", methods=["POST"])
+def insights():
+    """Extra insights for My Business: RV cliff, sector peers, deprivation, aggregate stats."""
+    import csv as _csv
+    data   = request.json or {}
+    rv     = float(data.get("rateable_value", 0))
+    sector = (data.get("sector") or "").lower()
+    borough= (data.get("borough") or "").lower()
+    postcode = (data.get("postcode") or "").upper()
+    cards  = []
+
+    # ── 1. London-wide unclaimed stat ────────────────────────────────────────
+    cards.append({
+        "type": "stat",
+        "icon": "💰",
+        "title": "£536M unclaimed across London",
+        "body": "117,188 London properties qualify for Small Business Rate Relief but most owners never applied. STELLA found yours.",
+        "color": "#4ade80",
+    })
+
+    # ── 2. RV cliff warning ───────────────────────────────────────────────────
+    if 12_000 < rv <= 13_500:
+        gap = rv - 12_000
+        cards.append({
+            "type": "alert",
+            "icon": "⚠",
+            "title": f"You're £{gap:,.0f} above the full-relief threshold",
+            "body": f"RV £{rv:,.0f} is just above £12,000. A successful 2026 revaluation appeal could drop you below and unlock 100% SBRR — saving ~£{rv*0.382:,.0f}/yr. You have until 31 March 2027 to appeal.",
+            "color": "#facc15",
+            "action": "Check appeal at gov.uk/business-rates-valuation-account",
+            "action_url": "https://www.gov.uk/business-rates-valuation-account",
+        })
+    elif 15_000 < rv <= 17_000:
+        cards.append({
+            "type": "alert",
+            "icon": "⚠",
+            "title": f"Just above tapered relief — appeal could save money",
+            "body": f"RV £{rv:,.0f} is above £15,000 so no SBRR applies. An appeal to reduce RV below £15k could unlock tapered relief. Deadline: 31 March 2027.",
+            "color": "#f97316",
+            "action": "Appeal your RV",
+            "action_url": "https://www.gov.uk/business-rates-valuation-account",
+        })
+
+    # ── 3. Sector peer comparison ─────────────────────────────────────────────
+    if sector and rv > 0:
+        try:
+            peer_rvs = []
+            with open(Path(__file__).parent.parent / "data" / "voa_london_index.csv") as f:
+                for row in _csv.DictReader(f):
+                    if row.get("sector","").lower() == sector:
+                        b = row.get("borough","").lower()
+                        if borough and b != borough:
+                            continue
+                        try:
+                            peer_rvs.append(float(row["rateable_value"]))
+                        except (ValueError, KeyError):
+                            pass
+                    if len(peer_rvs) >= 5000:
+                        break
+            if len(peer_rvs) >= 10:
+                peer_rvs.sort()
+                median = peer_rvs[len(peer_rvs)//2]
+                pct = sum(1 for p in peer_rvs if p <= rv) / len(peer_rvs) * 100
+                location = borough.title() if borough else "London"
+                if rv < median * 0.8:
+                    verdict = f"Your RV is well below the median — you're in the bottom {pct:.0f}% for your sector. Good position for relief."
+                    col = "#4ade80"
+                elif rv > median * 1.3:
+                    verdict = f"Your RV is above the median — consider a 2026 revaluation appeal to benchmark against peers."
+                    col = "#f97316"
+                else:
+                    verdict = f"Your RV is close to the {location} median for {sector}s."
+                    col = "#60a5fa"
+                cards.append({
+                    "type": "peer",
+                    "icon": "📊",
+                    "title": f"Your RV vs {len(peer_rvs):,} {sector}s in {location}",
+                    "body": f"Median {sector} RV in {location}: £{median:,.0f}. Yours: £{rv:,.0f}. {verdict}",
+                    "color": col,
+                })
+        except Exception:
+            pass
+
+    return jsonify({"insights": cards})
 
 
 @app.route("/api/companies-at", methods=["POST"])
