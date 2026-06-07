@@ -291,6 +291,7 @@ def biz_profile():
         rateable_value=prop["rateable_value"],
         company_age_years=company_age_years,
         company_type=company_type,
+        company_name=biz_name,
     )
 
     from data.borough_contacts import get_contact
@@ -428,48 +429,170 @@ def draft_grant():
 
 @app.route("/api/insights", methods=["POST"])
 def insights():
-    """Extra insights for My Business: RV cliff, sector peers, deprivation, aggregate stats."""
+    """Rich eligibility insights for My Business and Street Scanner views."""
     import csv as _csv
-    data   = request.json or {}
-    rv     = float(data.get("rateable_value", 0))
-    sector = (data.get("sector") or "").lower()
-    borough= (data.get("borough") or "").lower()
-    postcode = (data.get("postcode") or "").upper()
-    cards  = []
+    data       = request.json or {}
+    rv         = float(data.get("rateable_value", 0))
+    sector     = (data.get("sector") or "").lower()
+    borough    = (data.get("borough") or "").lower()
+    postcode   = (data.get("postcode") or "").upper()
+    biz_name   = (data.get("biz_name") or "").strip()
+    grants     = data.get("grants", [])   # pass in already-computed grants list
+    sbrr_saving= float(data.get("sbrr_saving", 0))
+    cards      = []
+    name_label = biz_name or "Your business"
 
-    # ── 1. London-wide unclaimed stat ────────────────────────────────────────
-    cards.append({
-        "type": "stat",
-        "icon": "💰",
-        "title": "£536M unclaimed across London",
-        "body": "117,188 London properties qualify for Small Business Rate Relief but most owners never applied. STELLA found yours.",
-        "color": "#4ade80",
-    })
+    # ── 1. SBRR eligibility status card ──────────────────────────────────────
+    if rv > 0:
+        if rv <= 12_000:
+            relief_pct = 100
+            annual = round(rv * 0.382, 0)
+            backdated = round(annual * 3, 0)
+            cards.append({
+                "type": "sbrr_eligible",
+                "icon": "✓",
+                "title": f"ELIGIBLE: 100% Small Business Rate Relief",
+                "body": (
+                    f"{name_label} has RV £{rv:,.0f} which qualifies for full SBRR. "
+                    f"You save £{annual:,.0f}/yr in business rates. "
+                    f"If unclaimed since April 2023, backdated value is £{backdated:,.0f}."
+                ),
+                "color": "#4ade80",
+                "action": "Apply now (takes 10 mins)",
+                "action_url": "https://www.gov.uk/apply-for-business-rate-relief/small-business-rate-relief",
+                "sbrr_annual": annual,
+                "sbrr_backdated": backdated,
+            })
+        elif rv <= 15_000:
+            taper = (15_000 - rv) / 3_000
+            relief_pct = round(taper * 100)
+            annual = round(rv * 0.382 * taper, 0)
+            backdated = round(annual * 3, 0)
+            cards.append({
+                "type": "sbrr_tapered",
+                "icon": "~",
+                "title": f"ELIGIBLE: {relief_pct}% tapered SBRR (RV £{rv:,.0f})",
+                "body": (
+                    f"Tapered relief applies between £12k and £15k RV. "
+                    f"At £{rv:,.0f} you get {relief_pct}% relief, saving £{annual:,.0f}/yr. "
+                    f"Backdated to April 2023: £{backdated:,.0f}."
+                ),
+                "color": "#facc15",
+                "action": "Apply now",
+                "action_url": "https://www.gov.uk/apply-for-business-rate-relief/small-business-rate-relief",
+                "sbrr_annual": annual,
+                "sbrr_backdated": backdated,
+            })
+        else:
+            cards.append({
+                "type": "sbrr_ineligible",
+                "icon": "✗",
+                "title": f"SBRR not available at RV £{rv:,.0f}",
+                "body": (
+                    f"Small Business Rate Relief requires RV below £15,000. "
+                    f"At £{rv:,.0f} you don't currently qualify. "
+                    f"A successful VOA appeal to bring RV below £15k could unlock tapered relief."
+                ),
+                "color": "#f87171",
+                "action": "Check your valuation",
+                "action_url": "https://www.gov.uk/business-rates-valuation-account",
+            })
 
-    # ── 2. RV cliff warning ───────────────────────────────────────────────────
+    # ── 2. Total money on table (SBRR + grants) ───────────────────────────────
+    eligible_grants   = [g for g in grants if g.get("eligibility") == "eligible"]
+    likely_grants     = [g for g in grants if g.get("eligibility") == "likely"]
+    grant_count       = len(eligible_grants) + len(likely_grants)
+    if sbrr_saving > 0 or grant_count > 0:
+        parts = []
+        if sbrr_saving > 0:
+            parts.append(f"£{sbrr_saving:,.0f}/yr SBRR")
+        if grant_count > 0:
+            parts.append(f"{grant_count} grant{'s' if grant_count != 1 else ''} ({len(eligible_grants)} confirmed eligible, {len(likely_grants)} likely)")
+        cards.append({
+            "type": "total",
+            "icon": "£",
+            "title": f"Total unclaimed: {' + '.join(parts)}",
+            "body": (
+                f"{name_label} has {len(eligible_grants) + len(likely_grants)} funding opportunities identified. "
+                f"{'SBRR alone is worth £' + f'{sbrr_saving:,.0f}' + '/yr — It does not apply automatically. You must claim it. ' if sbrr_saving > 0 else ''}"
+                f"{'Grants: ' + ', '.join(g['name'] for g in eligible_grants[:3]) + ('...' if len(eligible_grants) > 3 else '') if eligible_grants else ''}"
+            ),
+            "color": "#7c6af7",
+        })
+
+    # ── 3. Backdating urgency alert ───────────────────────────────────────────
+    if rv > 0 and rv <= 15_000:
+        if rv <= 12_000:
+            annual_bd = round(rv * 0.382, 0)
+        else:
+            annual_bd = round(rv * 0.382 * (15_000 - rv) / 3_000, 0)
+        backdated_3yr = annual_bd * 3
+        cards.append({
+            "type": "backdating",
+            "icon": "!",
+            "title": f"Claim £{backdated_3yr:,.0f} backdated to April 2023",
+            "body": (
+                f"SBRR is NOT applied automatically. You must contact your council and specifically ask to backdate to April 2023 "
+                f"(start of the current rating list). That is 3 years of unclaimed relief worth £{backdated_3yr:,.0f}. "
+                f"Deadline: councils can refuse to backdate beyond 6 years, so do not delay."
+            ),
+            "color": "#fb923c",
+            "action": "Apply to your council",
+            "action_url": "https://www.gov.uk/apply-for-business-rate-relief/small-business-rate-relief",
+        })
+
+    # ── 4. RV cliff warning ───────────────────────────────────────────────────
     if 12_000 < rv <= 13_500:
         gap = rv - 12_000
         cards.append({
             "type": "alert",
-            "icon": "⚠",
-            "title": f"You're £{gap:,.0f} above the full-relief threshold",
-            "body": f"RV £{rv:,.0f} is just above £12,000. A successful 2026 revaluation appeal could drop you below and unlock 100% SBRR — saving ~£{rv*0.382:,.0f}/yr. You have until 31 March 2027 to appeal.",
+            "icon": "!",
+            "title": f"£{gap:,.0f} above full-relief threshold. Consider a VOA appeal.",
+            "body": (
+                f"RV £{rv:,.0f} is just above £12,000. A successful 2026 revaluation appeal could drop you below £12k and unlock 100% SBRR, "
+                f"saving an extra £{round(rv*0.382 - (rv-gap)*0.382):,.0f}/yr. "
+                f"Appeal deadline: 31 March 2027."
+            ),
             "color": "#facc15",
-            "action": "Check appeal at gov.uk/business-rates-valuation-account",
+            "action": "Appeal your RV",
             "action_url": "https://www.gov.uk/business-rates-valuation-account",
         })
     elif 15_000 < rv <= 17_000:
         cards.append({
             "type": "alert",
-            "icon": "⚠",
-            "title": f"Just above tapered relief — appeal could save money",
-            "body": f"RV £{rv:,.0f} is above £15,000 so no SBRR applies. An appeal to reduce RV below £15k could unlock tapered relief. Deadline: 31 March 2027.",
+            "icon": "!",
+            "title": "Just above tapered relief. Appeal could unlock savings.",
+            "body": (
+                f"RV £{rv:,.0f} is above £15,000 so no SBRR applies. "
+                f"An appeal to bring RV below £15k could unlock tapered relief worth up to £{round(15000*0.382*0.5):,.0f}/yr. "
+                f"Deadline: 31 March 2027."
+            ),
             "color": "#f97316",
             "action": "Appeal your RV",
             "action_url": "https://www.gov.uk/business-rates-valuation-account",
         })
 
-    # ── 3. Sector peer comparison ─────────────────────────────────────────────
+    # ── 5. Deprivation / east London bonus grants alert ───────────────────────
+    _DEPRIVED_BOROUGHS = {"hackney","tower hamlets","newham","barking and dagenham","haringey",
+                          "waltham forest","lewisham","southwark","lambeth","islington"}
+    _EAST_BOROUGHS = {"hackney","tower hamlets","newham","waltham forest","barking and dagenham",
+                      "redbridge","havering","lewisham","greenwich"}
+    if borough in _DEPRIVED_BOROUGHS or borough in _EAST_BOROUGHS:
+        extra = []
+        if borough in _EAST_BOROUGHS:
+            extra.append("East London Business Place (ELBP) grant up to £10,000")
+        if borough in _DEPRIVED_BOROUGHS:
+            extra.append("UKSPF priority area (higher funding allocation)")
+            extra.append("GLA Good Growth Fund eligibility unlocked")
+        cards.append({
+            "type": "location_bonus",
+            "icon": "📍",
+            "title": f"{borough.title()} unlocks extra funding",
+            "body": f"Your location qualifies you for: {', '.join(extra)}. These are location-specific and not available to businesses in central/west London.",
+            "color": "#34d399",
+        })
+
+    # ── 6. Sector peer comparison ─────────────────────────────────────────────
     if sector and rv > 0:
         try:
             peer_rvs = []
@@ -490,26 +613,31 @@ def insights():
                 median = peer_rvs[len(peer_rvs)//2]
                 pct = sum(1 for p in peer_rvs if p <= rv) / len(peer_rvs) * 100
                 location = borough.title() if borough else "London"
+                eligible_in_borough = sum(1 for p in peer_rvs if p <= 15000)
                 if rv < median * 0.8:
-                    verdict = f"Your RV is well below the median — you're in the bottom {pct:.0f}% for your sector. Good position for relief."
+                    verdict = f"You are in the bottom {pct:.0f}% for your sector by rateable value. Strong position for relief."
                     col = "#4ade80"
                 elif rv > median * 1.3:
-                    verdict = f"Your RV is above the median — consider a 2026 revaluation appeal to benchmark against peers."
+                    verdict = f"Your RV is above the median. A 2026 revaluation appeal against peers could reduce it."
                     col = "#f97316"
                 else:
-                    verdict = f"Your RV is close to the {location} median for {sector}s."
+                    verdict = f"Your RV is near the median for {sector}s in {location}."
                     col = "#60a5fa"
                 cards.append({
                     "type": "peer",
-                    "icon": "📊",
-                    "title": f"Your RV vs {len(peer_rvs):,} {sector}s in {location}",
-                    "body": f"Median {sector} RV in {location}: £{median:,.0f}. Yours: £{rv:,.0f}. {verdict}",
+                    "icon": "=",
+                    "title": f"vs {len(peer_rvs):,} {sector}s in {location}: median RV £{median:,.0f}",
+                    "body": (
+                        f"Your RV: £{rv:,.0f}. {verdict} "
+                        f"{eligible_in_borough:,} of {len(peer_rvs):,} ({eligible_in_borough*100//len(peer_rvs)}%) "
+                        f"{sector}s in {location} qualify for SBRR."
+                    ),
                     "color": col,
                 })
         except Exception:
             pass
 
-    # ── 4. Named peer businesses at same postcode ────────────────────────────
+    # ── 7. Named peer businesses at same postcode ────────────────────────────
     if postcode and sector and rv > 0:
         try:
             peers = []
@@ -530,17 +658,33 @@ def insights():
             if len(peers) >= 2:
                 peers.sort(key=lambda p: p["rv"])
                 eligible_peers = [p for p in peers if p["eligible"]]
+                unclaimed_total = sum(p["saving"] for p in eligible_peers)
                 cards.append({
                     "type":  "peers",
-                    "icon":  "🏪",
-                    "title": f"{len(peers)} {sector}s at your postcode — {len(eligible_peers)} eligible for relief",
-                    "body":  f"Rateable values range £{peers[0]['rv']:,.0f}–£{peers[-1]['rv']:,.0f}. "
-                             + (f"{len(eligible_peers)} may have unclaimed SBRR." if eligible_peers else "None qualify for SBRR."),
+                    "icon":  "#",
+                    "title": f"{len(peers)} {sector}s at your postcode, {len(eligible_peers)} SBRR-eligible",
+                    "body":  (
+                        f"RV range at {postcode}: £{peers[0]['rv']:,.0f} to £{peers[-1]['rv']:,.0f}. "
+                        + (f"Estimated £{unclaimed_total:,.0f}/yr unclaimed among eligible businesses here." if eligible_peers else "None qualify for SBRR.")
+                    ),
                     "color": "#a78bfa",
                     "peers": peers[:8],
                 })
         except Exception:
             pass
+
+    # ── 8. London-wide context ────────────────────────────────────────────────
+    cards.append({
+        "type": "stat",
+        "icon": "*",
+        "title": "£536M unclaimed across London",
+        "body": (
+            "117,188 London properties qualify for SBRR but most owners never applied. "
+            "Relief is NOT automatic. Contact your council to claim it. "
+            "STELLA has identified your eligibility so you can act today."
+        ),
+        "color": "#64748b",
+    })
 
     return jsonify({"insights": cards})
 
@@ -684,6 +828,7 @@ def grants():
         rateable_value=float(data.get("rateable_value", 0)),
         company_age_years=data.get("company_age_years"),
         company_type=data.get("company_type", ""),
+        company_name=data.get("company_name", ""),
     )
     return jsonify({"grants": matched})
 
