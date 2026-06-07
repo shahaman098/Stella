@@ -339,6 +339,61 @@ def draft_email():
                     headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
+@app.route("/api/grant-application", methods=["POST"])
+def grant_application():
+    """Full tailored grant application package — streamed."""
+    data  = request.json or {}
+    grant = data.get("grant", {})
+    biz   = data.get("business", {})
+
+    # Build a rich eligibility narrative from actual company data
+    reasons = grant.get("match_reasons", [])
+    sic_str = ", ".join(biz.get("sic_codes", [])[:2]) or "not specified"
+    age     = biz.get("company_age_years")
+    age_str = f"{age:.0f} years old" if age else "age unknown"
+    rv      = biz.get("rateable_value", 0)
+
+    prompt = f"""You are helping {biz.get('name','this business')} apply for {grant.get('name')}.
+
+BUSINESS PROFILE:
+- Name: {biz.get('name','Unknown')}
+- Sector: {biz.get('sector','')} | Borough: {biz.get('borough','')}
+- Company age: {age_str} | Rateable value: £{rv:,.0f}
+- SIC codes: {sic_str}
+
+GRANT:
+- Name: {grant.get('name')}
+- Funder: {grant.get('funder')}
+- Value: {grant.get('value')}
+- Apply at: {grant.get('url')}
+- Deadline: {grant.get('deadline')}
+
+WHY THIS BUSINESS IS ELIGIBLE:
+{chr(10).join(f'- {r}' for r in reasons)}
+{chr(10).join(f'- BLOCKER: {b}' for b in grant.get('blockers',[]))}
+
+Write a complete grant application package with these 4 sections, each clearly labelled:
+
+**SECTION 1 — WHY YOU QUALIFY (3 bullet points, specific to this business)**
+**SECTION 2 — APPLICATION EMAIL (under 120 words, professional, ready to send)**
+**SECTION 3 — DOCUMENTS CHECKLIST (5 items you need to gather)**
+**SECTION 4 — STEP-BY-STEP HOW TO APPLY (5 numbered steps with URLs)**
+
+Be specific. Use the actual business name and figures. No generic filler."""
+
+    def generate():
+        try:
+            from agent.llm import stream_chat
+            for chunk in stream_chat(prompt):
+                yield f"data: {json.dumps({'t': chunk})}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'error': str(e)})}\n\n"
+        yield "data: [DONE]\n\n"
+
+    return Response(stream_with_context(generate()), mimetype="text/event-stream",
+                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
 @app.route("/api/draft-grant", methods=["POST"])
 def draft_grant():
     data    = request.json or {}
@@ -454,7 +509,108 @@ def insights():
         except Exception:
             pass
 
+    # ── 4. Named peer businesses at same postcode ────────────────────────────
+    if postcode and sector and rv > 0:
+        try:
+            peers = []
+            with open(Path(__file__).parent.parent / "data" / "voa_london_index.csv") as f:
+                for row in _csv.DictReader(f):
+                    if (row.get("postcode","").strip().upper() == postcode and
+                            row.get("sector","").lower() == sector):
+                        try:
+                            prv = float(row["rateable_value"])
+                        except (ValueError, KeyError):
+                            continue
+                        peers.append({
+                            "address": row.get("address",""),
+                            "rv": prv,
+                            "eligible": prv <= 15000,
+                            "saving": round(max(0, prv * 0.382 * (1 if prv <= 12000 else max(0, (15000-prv)/3000))), 0),
+                        })
+            if len(peers) >= 2:
+                peers.sort(key=lambda p: p["rv"])
+                eligible_peers = [p for p in peers if p["eligible"]]
+                cards.append({
+                    "type":  "peers",
+                    "icon":  "🏪",
+                    "title": f"{len(peers)} {sector}s at your postcode — {len(eligible_peers)} eligible for relief",
+                    "body":  f"Rateable values range £{peers[0]['rv']:,.0f}–£{peers[-1]['rv']:,.0f}. "
+                             + (f"{len(eligible_peers)} may have unclaimed SBRR." if eligible_peers else "None qualify for SBRR."),
+                    "color": "#a78bfa",
+                    "peers": peers[:8],
+                })
+        except Exception:
+            pass
+
     return jsonify({"insights": cards})
+
+
+@app.route("/api/priority-scan", methods=["POST"])
+def priority_scan():
+    """Return top unclaimed-money businesses for a borough or area."""
+    import csv as _csv
+    data    = request.json or {}
+    borough = (data.get("borough") or "").strip().lower()
+    limit   = min(int(data.get("limit", 20)), 50)
+
+    # Load VOA properties eligible for SBRR in the target area
+    eligible = []
+    with open(Path(__file__).parent.parent / "data" / "voa_london_index.csv") as f:
+        for row in _csv.DictReader(f):
+            b = row.get("borough","").lower()
+            if borough and b != borough:
+                continue
+            try:
+                rv = float(row.get("rateable_value", 0) or 0)
+            except (ValueError, TypeError):
+                continue
+            if rv <= 0 or rv > 15000:
+                continue
+            saving = rv * 0.382 if rv <= 12000 else rv * 0.382 * (15000 - rv) / 3000
+            if saving <= 0:
+                continue
+            eligible.append({
+                "address":  row.get("address", ""),
+                "postcode": row.get("postcode", ""),
+                "borough":  row.get("borough", ""),
+                "sector":   row.get("sector", ""),
+                "rv":       rv,
+                "saving":   round(saving, 0),
+                "backdated": round(saving * 3, 0),
+                "uarn":     row.get("uarn", ""),
+            })
+
+    # Sort by saving descending
+    eligible.sort(key=lambda x: -x["saving"])
+
+    # Cross-match with CH companies at each postcode
+    from data.ingest_companies_local import search_by_postcode
+    results = []
+    seen_postcodes: set = set()
+    for prop in eligible:
+        pc = prop["postcode"]
+        if not pc:
+            continue
+        companies = []
+        if pc not in seen_postcodes:
+            seen_postcodes.add(pc)
+            try:
+                local = search_by_postcode(pc)
+                companies = [{"name": c["name"], "sic": c.get("sic1",""), "number": c["company_number"]}
+                             for c in local[:3]]
+            except Exception:
+                pass
+        results.append({**prop, "companies": companies})
+        if len(results) >= limit:
+            break
+
+    total_saving = sum(r["saving"] for r in results)
+    return jsonify({
+        "borough":      borough.title() if borough else "London",
+        "count":        len(results),
+        "total_saving": total_saving,
+        "properties":   results,
+    })
 
 
 @app.route("/api/companies-at", methods=["POST"])

@@ -249,6 +249,7 @@
     <div class="mode-toggle">
       <button class="mode-btn active" id="modeStreet" onclick="setMode('street')">Street Scanner</button>
       <button class="mode-btn" id="modeBiz" onclick="setMode('biz')">My Business</button>
+      <button class="mode-btn" id="modePriority" onclick="setMode('priority')">Priority List</button>
     </div>
 
     <!-- Street scanner mode -->
@@ -275,6 +276,27 @@
              <kbd onclick="fillAndSearch('SE15 4JR')">SE15 4JR</kbd>
              <kbd onclick="fillAndSearch('N16 8JJ')">N16 8JJ</kbd>
       </div>
+    </div>
+
+    <!-- Priority List mode -->
+    <div id="priorityMode" style="display:none">
+      <div class="biz-form show">
+        <div class="biz-form-row">
+          <div style="flex:2">
+            <label>Borough (leave blank for all London)</label>
+            <input type="text" id="priorityBorough" placeholder="e.g. Camden, Hackney, Tower Hamlets">
+          </div>
+          <div style="flex:1">
+            <label>Results</label>
+            <select id="priorityLimit" style="background:#0d0d1a;border:1px solid #1e1e30;color:#e5e5e5;border-radius:6px;padding:0.5rem;width:100%">
+              <option value="20">Top 20</option>
+              <option value="50">Top 50</option>
+            </select>
+          </div>
+        </div>
+        <button class="btn-find" onclick="doPriorityScan()">Scan for Unclaimed Money →</button>
+      </div>
+      <div id="priorityResults"></div>
     </div>
 
     <!-- My Business mode -->
@@ -370,9 +392,67 @@ function setMode(mode) {
   _currentMode = mode;
   document.getElementById('modeStreet').classList.toggle('active', mode === 'street');
   document.getElementById('modeBiz').classList.toggle('active', mode === 'biz');
+  document.getElementById('modePriority').classList.toggle('active', mode === 'priority');
   document.getElementById('streetMode').style.display = mode === 'street' ? 'block' : 'none';
   document.getElementById('bizMode').style.display = mode === 'biz' ? 'block' : 'none';
+  document.getElementById('priorityMode').style.display = mode === 'priority' ? 'block' : 'none';
   clearResults();
+}
+
+async function doPriorityScan() {
+  const borough = document.getElementById('priorityBorough').value.trim();
+  const limit   = parseInt(document.getElementById('priorityLimit').value);
+  const el      = document.getElementById('priorityResults');
+  el.innerHTML  = '<div style="color:#666;padding:1rem">Scanning VOA database…</div>';
+  const res = await fetch('/api/priority-scan', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({borough, limit})
+  });
+  const data = await res.json();
+  renderPriorityList(data);
+}
+
+function renderPriorityList(data) {
+  const el = document.getElementById('priorityResults');
+  const props = data.properties || [];
+  if (!props.length) { el.innerHTML = '<div style="color:#666;padding:1rem">No results found.</div>'; return; }
+  const totalM = (data.total_saving / 1e6).toFixed(1);
+  let html = `
+    <div style="margin:1rem 0;padding:0.8rem 1rem;background:#0a1a0a;border:1px solid #1a4a1a;border-radius:8px">
+      <div style="color:#4ade80;font-weight:700;font-size:1.1rem">£${totalM}M/yr unclaimed in top ${props.length} results</div>
+      <div style="color:#666;font-size:0.78rem;margin-top:2px">${data.borough} · ${data.count} eligible properties shown · click any row to open in My Business</div>
+    </div>
+    <table style="width:100%;border-collapse:collapse;font-size:0.8rem">
+      <thead><tr style="color:#555;text-align:left;border-bottom:1px solid #1a1a1a">
+        <th style="padding:6px 8px">#</th>
+        <th style="padding:6px 8px">Address</th>
+        <th style="padding:6px 8px">Sector</th>
+        <th style="padding:6px 8px">RV</th>
+        <th style="padding:6px 8px;color:#4ade80">Saving/yr</th>
+        <th style="padding:6px 8px;color:#a78bfa">Backdated est.</th>
+        <th style="padding:6px 8px">Registered companies</th>
+      </tr></thead><tbody>`;
+  props.forEach((p, i) => {
+    const companies = (p.companies || []).map(c => esc(c.name)).join(', ') || '<span style="color:#333">—</span>';
+    html += `<tr style="border-bottom:1px solid #111;cursor:pointer" onclick="openInMyBiz('${esc(p.postcode)}', '${esc((p.companies||[])[0]?.name||'')}')">
+      <td style="padding:6px 8px;color:#555">${i+1}</td>
+      <td style="padding:6px 8px;color:#ccc">${esc(p.address)}<br><span style="color:#444;font-size:0.72rem">${esc(p.postcode)} · ${esc(p.borough)}</span></td>
+      <td style="padding:6px 8px;color:#888">${esc(p.sector)}</td>
+      <td style="padding:6px 8px;color:#aaa">£${fmt(p.rv)}</td>
+      <td style="padding:6px 8px;color:#4ade80;font-weight:700">£${fmt(p.saving)}</td>
+      <td style="padding:6px 8px;color:#a78bfa">£${fmt(p.backdated)}</td>
+      <td style="padding:6px 8px;color:#60a5fa;font-size:0.75rem">${companies}</td>
+    </tr>`;
+  });
+  html += '</tbody></table>';
+  el.innerHTML = html;
+}
+
+function openInMyBiz(postcode, name) {
+  setMode('biz');
+  document.getElementById('bizPostcode').value = postcode;
+  document.getElementById('bizName').value = name || '';
+  if (name && postcode) doBizSearch();
 }
 
 let _bizContext = {};  // persisted across step1 → step2
@@ -882,7 +962,11 @@ function renderGrants(grants) {
           <div id="grant-steps-${i}" style="font-size:0.8rem;color:#ccc;white-space:pre-line;background:#0a0a0a;border:1px solid #222;border-radius:6px;padding:8px"></div>
           <button onclick="copyGrantEmail(${i})" style="margin-top:6px;padding:4px 12px;background:#1a1a2e;border:1px solid #333;color:#aaa;border-radius:4px;cursor:pointer;font-size:0.75rem">Copy email</button>
         </div>
-        <button onclick="draftGrant(${i})" id="grant-btn-${i}" style="margin-top:8px;padding:5px 14px;background:#0f1a2e;border:1px solid #1e3a5f;color:#60a5fa;border-radius:5px;cursor:pointer;font-size:0.78rem">✍ Help me apply</button>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">
+          <button onclick="draftGrant(${i})" id="grant-btn-${i}" style="padding:5px 14px;background:#0f1a2e;border:1px solid #1e3a5f;color:#60a5fa;border-radius:5px;cursor:pointer;font-size:0.78rem">✍ Quick email</button>
+          <button onclick="fullApplication(${i})" id="grant-full-btn-${i}" style="padding:5px 14px;background:#0a1a0a;border:1px solid #1a4a1a;color:#4ade80;border-radius:5px;cursor:pointer;font-size:0.78rem">📋 Full application package</button>
+        </div>
+        <div id="grant-full-${i}" style="display:none;margin-top:10px;padding:10px;background:#050505;border:1px solid #1a1a1a;border-radius:6px;font-size:0.8rem;color:#ccc;white-space:pre-wrap;line-height:1.6;max-height:400px;overflow-y:auto"></div>
       </div>
       <div style="text-align:right;min-width:100px">
         <div class="grant-value">${esc(g.value)}</div>
@@ -955,6 +1039,28 @@ function streamSSE(url, body, target, onDone) {
       }
       read();
     }).catch(() => { if (onDone) onDone(); });
+}
+
+function fullApplication(i) {
+  const g = _grantsCache[i];
+  const biz = _bizProfileCache.property || {};
+  const bizMeta = {
+    name: _bizProfileCache.biz_name || '',
+    sector: biz.sector || '',
+    borough: biz.borough || '',
+    rateable_value: biz.rateable_value || 0,
+    company_age_years: _bizProfileCache.company_age_years || null,
+    sic_codes: _bizProfileCache.sic_codes || [],
+  };
+  const btn = document.getElementById(`grant-full-btn-${i}`);
+  const box = document.getElementById(`grant-full-${i}`);
+  btn.textContent = '⏳ Generating…'; btn.disabled = true;
+  box.textContent = '';
+  box.style.display = 'block';
+  streamSSE('/api/grant-application', {grant: g, business: bizMeta}, box, () => {
+    btn.textContent = '📋 Full application package';
+    btn.disabled = false;
+  });
 }
 
 function copyGrantEmail(i) {
